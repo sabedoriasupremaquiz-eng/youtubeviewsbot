@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Player de Vídeo — YouTube</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b1020; --panel:#151d31; --muted:#9aa8c2; --accent:#7c5cff; --line:#28344d; }
+    * { box-sizing:border-box }
+    body { margin:0; min-height:100vh; padding:28px 16px; font:16px/1.5 system-ui, sans-serif; color:#eef2ff; background:radial-gradient(circle at top,#1b2850 0,var(--bg) 48%); }
+    main { width:min(900px,100%); margin:auto }
+    header { margin-bottom:22px }
+    h1 { margin:0 0 6px; font-size:clamp(1.6rem,4vw,2.2rem) }
+    p { color:var(--muted); margin:0 }
+    .panel { background:rgba(21,29,49,.94); border:1px solid var(--line); border-radius:18px; padding:20px; box-shadow:0 18px 55px #0005; }
+    label { display:block; margin-bottom:8px; font-weight:650 }
+    .controls { display:flex; gap:10px; flex-wrap:wrap }
+    input { flex:1 1 280px; min-width:0; padding:14px 15px; border-radius:11px; border:1px solid #3a4968; background:#0c1427; color:white; font:inherit; outline:none }
+    input:focus { border-color:var(--accent) }
+    button { border:0; border-radius:11px; padding:13px 19px; font:700  .95rem system-ui; cursor:pointer; color:white; background:var(--accent) }
+    button.secondary { background:#2b3855 }
+    button:disabled { opacity:.45; cursor:not-allowed }
+    .player-wrap { margin-top:20px; aspect-ratio:16/9; width:100%; overflow:hidden; border-radius:14px; background:#070b14; border:1px solid var(--line) }
+    #player, #placeholder { width:100%; height:100% }
+    #placeholder { display:grid; place-items:center; text-align:center; padding:20px; color:var(--muted) }
+    iframe { width:100%; height:100%; border:0 }
+    .actions { display:flex; gap:10px; flex-wrap:wrap; margin-top:15px }
+    .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:18px }
+    .stat { background:#0c1427; border:1px solid var(--line); padding:13px; border-radius:12px }
+    .stat small { display:block; color:var(--muted); margin-bottom:4px }
+    .stat strong { font-size:1.2rem }
+    #message { margin-top:14px; min-height:24px; color:#c7d2fe }
+    .note { margin-top:18px; padding:13px 15px; border-radius:12px; background:#211d3a; color:#d9d2ff; font-size:.92rem }
+    @media(max-width:560px) { body{padding:18px 12px} .panel{padding:15px} .stats{grid-template-columns:1fr} button{flex:1} }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Player de vídeo do YouTube</h1>
+    <p>Reproduza um vídeo em um player oficial, com opção de repetição para exibição contínua.</p>
+  </header>
+
+  <section class="panel">
+    <label for="videoUrl">Link do vídeo</label>
+    <div class="controls">
+      <input id="videoUrl" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off">
+      <button id="confirmBtn">CONFIRMAR</button>
+    </div>
+
+    <div class="player-wrap">
+      <div id="placeholder">Cole o link de um vídeo e clique em <b>CONFIRMAR</b>.</div>
+      <div id="player" hidden></div>
+    </div>
+
+    <div class="actions">
+      <button id="playBtn" disabled>INICIAR REPRODUÇÃO</button>
+      <button id="stopBtn" class="secondary" disabled>PARAR</button>
+    </div>
+
+    <div class="stats" aria-live="polite">
+      <div class="stat"><small>Player carregado</small><strong id="loaded">Não</strong></div>
+      <div class="stat"><small>Status</small><strong id="status">Aguardando</strong></div>
+      <div class="stat"><small>Repetição</small><strong id="repeat">Ativada</strong></div>
+    </div>
+    <div id="message" role="status"></div>
+    <div class="note">
+      Este painel usa apenas um player oficial. Abrir milhares de cópias do mesmo vídeo para gerar visualizações artificiais pode ser considerado tráfego inválido pelo YouTube. Navegadores também bloqueiam ou limitam milhares de players simultâneos.
+    </div>
+  </section>
+</main>
+
+<script>
+  let videoId = null;
+
+  const $ = id => document.getElementById(id);
+  const setStatus = value => $('status').textContent = value;
+  const setMessage = value => $('message').textContent = value;
+
+  function extractVideoId(raw) {
+    try {
+      const u = new URL(raw.trim());
+      const host = u.hostname.replace(/^www\./, '').toLowerCase();
+
+      if (host === 'youtu.be') {
+        return u.pathname.split('/').filter(Boolean)[0] || null;
+      }
+
+      if (host === 'youtube.com' || host.endsWith('.youtube.com') ||
+          host === 'youtube-nocookie.com' || host.endsWith('.youtube-nocookie.com')) {
+        if (u.pathname === '/watch') return u.searchParams.get('v');
+        const parts = u.pathname.split('/').filter(Boolean);
+        if (['embed', 'shorts', 'live'].includes(parts[0])) return parts[1] || null;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  function renderPlayer(autoplay) {
+    if (!videoId) return;
+
+    const params = new URLSearchParams({
+      autoplay: autoplay ? '1' : '0',
+      controls: '1',
+      loop: '1',
+      playlist: videoId,
+      playsinline: '1',
+      rel: '0'
+    });
+
+    const frame = document.createElement('iframe');
+    frame.src = 'https://www.youtube-nocookie.com/embed/' +
+      encodeURIComponent(videoId) + '?' + params.toString();
+    frame.title = 'Player de vídeo do YouTube';
+    frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+    frame.allowFullscreen = true;
+    frame.referrerPolicy = 'strict-origin-when-cross-origin';
+
+    $('player').replaceChildren(frame);
+    $('player').hidden = false;
+    $('placeholder').hidden = true;
+  }
+
+  $('confirmBtn').addEventListener('click', () => {
+    const id = extractVideoId($('videoUrl').value);
+    if (!id || !/^[a-zA-Z0-9_-]{11}$/.test(id)) {
+      videoId = null;
+      $('playBtn').disabled = true;
+      $('stopBtn').disabled = true;
+      $('loaded').textContent = 'Não';
+      setStatus('Aguardando');
+      setMessage('Link inválido. Use um endereço válido de vídeo do YouTube.');
+      return;
+    }
+
+    videoId = id;
+    renderPlayer(false);
+    $('loaded').textContent = 'Sim';
+    $('playBtn').disabled = false;
+    $('stopBtn').disabled = false;
+    setStatus('Pronto');
+    setMessage('Vídeo carregado. Clique em INICIAR REPRODUÇÃO.');
+  });
+
+  $('playBtn').addEventListener('click', () => {
+    if (!videoId) {
+      setMessage('Primeiro, cole o link e clique em CONFIRMAR.');
+      return;
+    }
+
+    // Recria o iframe no clique do usuário com autoplay=1.
+    // Assim, a reprodução não depende do carregamento assíncrono da API.
+    renderPlayer(true);
+    setStatus('Reproduzindo');
+    setMessage('Solicitação de reprodução enviada ao YouTube.');
+  });
+
+  $('stopBtn').addEventListener('click', () => {
+    if (!videoId) return;
+    renderPlayer(false);
+    setStatus('Parado');
+    setMessage('Reprodução interrompida.');
+  });
+
+  $('videoUrl').addEventListener('keydown', e => {
+    if (e.key === 'Enter') $('confirmBtn').click();
+  });
+</script>
+</body>
+</html>
